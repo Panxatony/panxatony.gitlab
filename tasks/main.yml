@@ -24,6 +24,14 @@
   tags:
     - gitlab
 
+- name: enable seboolean httpd_can_network_connect
+  seboolean: name=httpd_can_network_connect state=on persistent=yes
+  when: ansible_selinux.status is defined and ansible_selinux.status == 'enabled'
+  become: yes
+  become_user: root
+  tags:
+    - gitlab
+
 - name: Check if GitLab configuration file already exists.
   stat: path=/etc/gitlab/gitlab.rb
   register: gitlab_config_file
