@@ -1,0 +1,102 @@
+---
+# tasks file for panxatony.gitlab
+
+---
+
+- name: Check if GitLab configuration file already exists.
+  stat: path=/etc/gitlab/gitlab.rb
+  register: gitlab_config_file
+  tags:
+    - gitLab
+
+- name: Check if GitLab is already installed.
+  stat: path=/usr/bin/gitlab-ctl
+  register: gitlab_file
+  tags:
+    - gitLab
+
+# Install GitLab and its dependencies (RedHat).
+- name: Install GitLab dependencies (RedHat).
+  yum: "name={{ item }} state=installed"
+  become: yes
+  become_user: root
+  with_items:
+    - openssh-server
+    - postfix
+    - curl
+  tags:
+    - gitLab
+
+- name: Download GitLab repository installation script (RedHat).
+  get_url:
+    url: "{{ gitlab_repository_installation_script_url }}"
+    dest: /tmp/gitlab_install_repository.sh
+  when: (gitlab_file.stat.exists == false) and (ansible_os_family == 'RedHat')
+  become: yes
+  become_user: root
+  tags:
+    - gitLab
+
+- name: Install GitLab repository (RedHat)
+  command: bash /tmp/gitlab_install_repository.sh
+  when: (gitlab_file.stat.exists == false) and (ansible_os_family == 'RedHat')
+  become: yes
+  become_user: root
+  tags:
+    - gitLab
+
+- name: Install GitLab (RedHat)
+  yum: "name=gitlab-ce state=installed"
+  when: (gitlab_file.stat.exists == false) and (ansible_os_family == 'RedHat')
+  become: yes
+  become_user: root
+  tags:
+    - gitLab
+
+# Start and configure GitLab. Sometimes the first run fails, but after that,
+# restarts fix problems, so ignore failures on this run.
+- name: Reconfigure GitLab (first run).
+  become: yes
+  become_user: root
+  command: >
+    gitlab-ctl reconfigure
+    creates=/var/opt/gitlab/bootstrapped
+  failed_when: false
+  tags:
+    - gitLab
+
+- name: Create GitLab SSL configuration folder.
+  become: yes
+  become_user: root
+  file:
+    path: /etc/gitlab/ssl
+    state: directory
+    owner: root
+    group: root
+    mode: 0700
+  when: gitlab_create_self_signed_cert
+  tags:
+    - gitLab
+
+- name: Create self-signed certificate.
+  become: yes
+  become_user: root
+  command: >
+    openssl req -new -nodes -x509 -subj "{{ gitlab_self_signed_cert_subj }}" -days 3650 -keyout {{ gitlab_ssl_certificate_key }} -out {{ gitlab_ssl_certificate }} -extensions v3_ca
+    creates={{ gitlab_ssl_certificate }}
+  when: gitlab_create_self_signed_cert
+  tags:
+    - gitLab
+
+- name: Copy GitLab configuration file.
+  become: yes
+  become_user: root
+  template:
+    src: gitlab.rb.j2
+    dest: /etc/gitlab/gitlab.rb
+    owner: root
+    group: root
+    mode: 0600
+  notify: restart gitlab
+  tags:
+    - gitLab
